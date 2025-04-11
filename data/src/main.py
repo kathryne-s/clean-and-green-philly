@@ -11,6 +11,8 @@ from new_etl.classes.slack_reporters import (
     send_error_to_slack,
     send_pg_stats_to_slack,
 )
+
+# why are there two of each of these in the files
 from new_etl.data_utils import (
     access_process,
     city_owned_properties,
@@ -78,29 +80,44 @@ try:
         park_priority,
     ]
 
+    #look at opa properties dataset
     print("Loading OPA properties dataset.")
     dataset = opa_properties()
 
+    #run each function on opa_properties dataset
+    #the altered dataset becomes the new dataset
     for service in services:
         print(f"Running service: {service.__name__}")
         dataset = service(dataset)
 
+    #apply a couple more functions to dataset
     print("Applying final dataset transformations.")
     dataset = priority_level(dataset)
     dataset = access_process(dataset)
 
     # Save metadata
+    # the dataset probably has a attribute/method that returns metadata
+    # save metadata to a csv file named metadata.csv
     try:
         metadata_df = pd.DataFrame(dataset.collected_metadata)
         metadata_df.to_csv("tmp/metadata.csv", index=False)
+    # if it doesnt work print error message
     except Exception as e:
         print(f"Error saving metadata: {str(e)}")
     # Drop duplicates
+
+    # number of rows
     before_drop = dataset.gdf.shape[0]
+
+    # i guess dataset's gdf also has a method drop duplicates
+    # drops all documents on opa_id
     dataset.gdf = dataset.gdf.drop_duplicates(subset="opa_id")
+
+    #tells the number of rows dropped
     print(f"Duplicate rows dropped: {before_drop - dataset.gdf.shape[0]}")
 
     # Convert columns to numeric where necessary
+    # these columns will be converted to numeric data
     numeric_columns = [
         "market_value",
         "sale_price",
@@ -109,20 +126,27 @@ try:
         "num_years_owed",
         "permit_count",
     ]
+
+    # get the columns with the above names, make them into numeric data (float)
+    # if it cant be converted it will be parsed as NaN (similar to undefined)
     dataset.gdf[numeric_columns] = dataset.gdf[numeric_columns].apply(
         pd.to_numeric, errors="coerce"
     )
+    #similar to apply, but more efficient. applies change to the whole column at once
     dataset.gdf["most_recent_year_owed"] = dataset.gdf["most_recent_year_owed"].astype(
         str
     )
 
     # Dataset profiling
+    #this probably sends all the data to slack
+    #not sure whar all_properties_end means, why is it named that?, why is no slack channel specified?
     send_dataframe_profile_to_slack(dataset.gdf, "all_properties_end")
 
     # Save dataset to PostgreSQL
     to_postgis_with_schema(dataset.gdf, "all_properties_end", conn)
 
     # Generate and send diff report
+    # RESEARCH DIFFREPORT
     diff_report = DiffReport()
     diff_report.run()
 
